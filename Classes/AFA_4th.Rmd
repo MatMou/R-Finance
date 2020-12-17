@@ -1,0 +1,119 @@
+---
+title: "AFA - 4th Session"
+author: "Mathis Mourey"
+date: "28 octobre 2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Pricing Option 
+
+
+```{r packages, echo=T, include=F}
+library(ggplot2)
+library(quantmod)
+library(reshape)
+library(arrayhelpers)
+
+```
+
+
+We starts today's lecture by pricing exotic options using Monte-Carlo procedure. MC for pricing options consists in the following steps: 
+
+1. Choose a process for the underlying asset. Usually, we go for a Geometric Brownian Motion (GBM).
+2. Simulate *n* price paths. In other words simulate the full development of the price from $t=0$ to $t=T$, *n* number of times.
+3. Compute the payoff of the option at maturity (or $t=T$) for each simulation. 
+4. Average the payoff and discount it, in order to bring back the value to present days.
+
+We start by choosing the process for our underlying asset. We choose a common GBM, such that the returns of our underlying follows: 
+
+$$ \frac{dS_t}{S_t} = \mu * dt + \sigma * dB_t  $$
+We solve the PDE and we end up with the following closed-form: 
+
+$$ S_{t + dt} = S_t  e^{(\mu - \frac{\sigma^2}{2})dt + \sigma \epsilon \sqrt{dt}} $$
+Where, $\epsilon$ is Standard White noise (eq. follows a Standard Gaussian (0, 1)). 
+
+In order to compute $\mu$ (the mean return) and $\sigma$ (the standard deviation of returns), we take the stock price of FB. Then we simulate `nb_mc` number of simulations.
+
+```{r Brownian_motion}
+
+nb_mc = 50
+df_mc = data.frame(matrix(NA, nrow=500, ncol=nb_mc))
+x = getSymbols('FB', env=NULL )
+
+
+#take only the 500 last points of the data
+df_mc[,1]= tail(index(x), 500)
+df_mc[,2] = tail(x[, 6], 500)
+
+
+#get the mean and std of returns
+mu= mean(diff(log(df_mc[,2])), na.rm=T)
+sigma = sd(diff(log(df_mc[,2])), na.rm=T)
+
+for(j in 3:(ncol(df_mc)-1)){
+  df_mc[249,j] = df_mc[249,2]
+  for(i in 250:500){
+    df_mc[i, j] = df_mc[i-1,j]*exp((mu-(sigma**2)/2)+sigma*rnorm(1,0,1))
+  }
+} 
+
+df_mc[,nb_mc] = apply(X=df_mc[,3:(nb_mc-1)], FUN='mean', MARGIN = 1)
+tail(df_mc)
+
+```
+
+By using the function `melt()` we allow to create the following graph that integrates all simulated future prices along with the actual one. 
+
+```{r plot}
+
+new_df = melt(df_mc, id='X1')
+
+p = ggplot() + geom_line(data=new_df, aes(x=X1, y=value, colour=variable))
+p
+
+```
+
+We develop our program to price exotic option and price an example of Lookback option: 
+
+$$  Payoff = max(S_T - \frac{1}{T} \sum \limits_{t=1}^{T} S_t; 0 )$$
+
+
+```{r Lookback_pricer}
+
+
+Lookback_opt_pricer <- function(S, rf, t, sigma, option_type, nb_simu, time_step){
+  dt = t/time_step
+  drift = (rf-(sigma**2)/2)*dt
+  shock = sigma*sqrt(dt)
+  
+  LB_Brownian = data.frame(matrix(nrow=time_step, ncol=nb_simu))
+  LB_Brownian[1,] = rep(S, nb_simu)
+  
+  for(j in 1:nb_simu ){
+    for(i in 2:time_step){
+      LB_Brownian[i,j] = LB_Brownian[i-1,j]*exp(drift+shock*rnorm(1))
+
+    }
+  }
+  
+  pre_LB = colMeans(LB_Brownian)
+  ST = LB_Brownian[time_step,]
+  
+  if(option_type=='call'){
+    temp = pmax((ST-pre_LB),0)
+    LB = sum(temp)/length(temp)
+  } else {
+    temp= pmax((pre_LB - ST),0)
+    LB = sum(temp)/length(temp)
+  }
+  return(LB*(1+rf)**(-t))
+}
+
+
+Lookback_opt_pricer(S=100, rf=0.04, t=1, sigma=0.1, option_type='put', nb_simu=100, time_step=50)
+```
+

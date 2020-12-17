@@ -1,0 +1,158 @@
+---
+title: "AFA - 2nd Session"
+author: "Mathis Mourey"
+date: "6 février 2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# R for AFA - 2nd session - More dealing with data 
+
+We're going to start off with getting data from the quantmod API. 
+
+```{r get_data}
+library(quantmod)
+stocks = c('AAPL', 'FB')
+
+
+get_data = function(stocks){
+  df = data.frame(matrix(nrow=300, ncol=length(stocks)))
+  r=1
+  for(i in stocks){
+    df[,r] = tail(getSymbols(i, env=NULL)[,6], 300)
+    r = r + 1
+  } 
+  colnames(df) = stocks
+  return (df)
+} 
+
+df = get_data(stocks)
+head(df)
+```
+
+```{r compute_returns}
+
+p_to_r = function(df){
+  rt = data.frame(matrix(nrow=nrow(df), ncol=ncol(df)))
+  for(i in 1:ncol(df)){
+    rt[,i] = diff(log(df[,i]))
+  }
+  rt = rt[-1,]
+  colnames(rt) = colnames(df)
+  return(rt)
+}
+
+rt = p_to_r(df)
+head(rt)
+```
+
+# Know your data: plot it first
+
+```{r plots}
+
+plot(df$AAPL)
+plot(df$FB)
+plot(rt$AAPL)
+plot(rt$FB)
+
+```
+
+
+
+## Boxplots, Pirate plots, Density and other usefull visualization. 
+
+
+```{r otherplots}
+library(yarrr)
+
+
+boxplot(as.matrix(rt))
+
+pirateplot(data=rt, 
+           xlab=colnames(rt),
+           quant = c(.025, .975), # 10th and 90th quantiles
+           quant.col = "black")
+
+for(i in 1:ncol(rt)){
+  plot(density(rt[,i]))
+}
+
+
+```
+
+
+```{r otherplots2}
+
+layout(rbind(c(1, 1), c(2, 3)))
+
+
+hist(rt$AAPL)
+acf(rt$AAPL)
+qqnorm(rt$AAPL, pch = 19)
+qqline(rt$AAPL)
+
+
+
+
+```
+
+## R for AFA - 2nd session - Missing data 
+
+How to deal with missing data ? This is a central issue when we use financial data. There could be (and most probably there will be) missing data in your dataset. First, there is no good way to deal with missing data. Each method can be debated and have drawbacks for sure. In pratice there is three ways to deal with NAs. 
+
+1. **Only use complete cases** :This means to ignore any observations with missing data. It obviously works the best when there is only very few of missing datas. Moreover, it can biased the values of estimators. By selecting only available values, are you describing the actual relationships exisitng or the relationship only for fully observable variables? 
+
+2. **Remove predictors with NAs** : Quite a simple solutions as well. Should be used in priority when one predictor contains a lot of missing cases. 
+
+3. **Imputation of NAs** : Find a statistical model that allows you to create artificial data to remplace the missing cases. The simplest case is the linear regression. This method applies to datasets containing lot of missing data a bit everywhere. 
+
+What to do when there is a lot of NAs everywhere then ? Simple. Don't do the analysis. The results will not provide you any good information anyways. Keep in mind that the purpose of statistics is to give you significant information from the data. In order to do so, it needs proper data. Cleaning your dataset (one of the three options above) before starting any analysis is fundamental ! 
+
+
+```{r df}
+library(openxlsx)
+df = read.xlsx('missing_dataAFA.xlsx', sheet= 'Company_data')
+df
+
+```
+
+
+
+```{r NAs}
+library(Hmisc)
+describe(df)
+
+```
+
+```{r NAs2}
+library(VIM)
+aggr(df)
+
+```
+
+```{r lm}
+library(lmtest)
+res = lm(Company.Market.Cap ~ Normalized.EBIT + Total.Current.Assets, data=df, na.action = na.omit)
+summary(res)
+
+```
+
+
+```{r lm1}
+m_coef = res$coefficients
+m_resid = mean(res$residuals)
+
+for (i in 1:nrow(df)){
+  if (is.na(df$Normalized.EBIT[i])==T){
+    df$Normalized.EBIT[i] = (df$Company.Market.Cap[i] - m_coef[3]*df$Total.Current.Assets[i] - m_coef[1] - m_resid)/m_coef[2]
+  } else if (is.na(df$Total.Current.Assets[i])==T){
+    df$Total.Current.Assets[i] = (df$Company.Market.Cap[i] - m_coef[2]*df$Normalized.EBIT[i] - m_coef[1] - m_resid)/m_coef[3]
+  }
+}
+
+aggr(df)
+```
+

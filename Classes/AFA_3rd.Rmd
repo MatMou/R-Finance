@@ -1,0 +1,263 @@
+---
+title: "AFA - 3rd Session"
+author: "Mathis Mourey"
+date: "28 octobre 2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R for AFA - 3nd session - Plotting stuff 
+
+
+Introduction to ggplot: 
+
+ggplot2 uses a different kind of logic. You first need to create a blank canvas, using the function `ggplot()`. Then we add new components to the empty canvas by literally adding the corresponding function. For instance for a line plot: `+ geom_line()`. The data input of the function needs to be under a dataframe structure. So you precise the name of the dataframe: `geom_line(data=data_frame_name)`. And then, in the aestetics (aes) you precise the variable by the column name they occupy in the dataframe: `geom_line(data=data_frame_name, aes=(x=First_variable, y=Second_variable) )`.
+
+```{r intro_ggplot}
+
+library(openxlsx)
+library(ggplot2)
+
+df = read.xlsx('dataset_AFA.xlsx', sheet='Market_Data')
+df$Dates = as.Date(df$Dates, origin='1899-12-30')
+coeff = mean(df$AAPL.R)/mean(df$AAPL.V)
+p1 <- ggplot() + geom_line(data=df, aes(x=Dates, y=AAPL.R), color='darkblue')
+p1
+
+
+```
+
+You can have multiple outcome plots by adding different types of plots to the same canvas. In the graph below, we are adding a barplot to the existing line plot by using: `+ geom_bar()`.
+
+```{r intro_ggplot1}
+
+library(openxlsx)
+library(ggplot2)
+
+df = read.xlsx('dataset_AFA.xlsx', sheet='Market_Data')
+df$Dates = as.Date(df$Dates, origin='1899-12-30')
+coeff = mean(df$FB.R)/mean(df$FB.V)
+p1 <- ggplot() + geom_bar(data=df, aes(x=Dates, y=FB.V*coeff), stat = 'identity', color="#69b3a2") +
+  geom_line(data=df, aes(x=Dates, y=FB.R), color='darkblue') +
+  scale_y_continuous(name = "Price",
+                     sec.axis = sec_axis(~.*coeff, name="Volume")) 
+p1
+
+```
+
+
+## Empirical efficient frontier
+
+We are going to compute the some efficient portfolios: Minimum Variance Portfolio (MVP), Maximum Return Portfolio (MRP) and the Maximum Sharpe Portfolio (MSP). We will then construct the efficient frontier. We start by retrieving the stocks prices from yahoo finance.
+
+
+```{r get_data}
+
+library(quantmod)
+stocks = c('AAPL', 'FB', 'TSLA', 'GM', 'DB')
+
+
+# retrieve adjusted close for the stocks in stocks
+get_data = function(stocks){
+  df = data.frame(matrix(nrow=300, ncol=length(stocks)))
+  r=1
+  for(i in stocks){
+    df[,r] = tail(getSymbols(i, env=NULL)[,6], 300)
+    r = r + 1
+  } 
+  colnames(df) = stocks
+  return (df)
+} 
+
+
+# turn the price dataframe into a return dataframe
+p_to_r = function(df){
+  rt = data.frame(matrix(nrow=nrow(df), ncol=ncol(df)))
+  for(i in 1:ncol(df)){
+    rt[,i] = diff(log(df[,i]))
+  }
+  rt = rt[-1,]
+  colnames(rt) = colnames(df)
+  return(rt)
+}
+
+
+df = get_data(stocks)
+rt = p_to_r(df)
+head(rt)
+
+```
+
+We will then need the vector of expected return (or mean returns) and the variance-covariance matrix. The library `arrayhelpers` gives out the function `colMeans()` which allows for computing the mean value of each columns in a dataframe. We apply it to the dataframe of financial returns in order to get the vector of expected returns.
+
+
+```{r esp_cov}
+library(arrayhelpers)
+
+my_esp = colMeans(rt)
+my_cov = cov(rt)
+
+my_esp
+my_cov
+
+```
+
+In order to have an idea of how the empirical efficient frontrier looks like, we start by simulating **n_simu** amount of portfolio by assigning random weights. We then use the scatter plot of ggplot2 or `geom_jitter()` to plot all simulated portfolio in a return-variance space.
+
+```{r plot}
+library(arrayhelpers)
+
+n_simu = 10000
+mc_port = data.frame(matrix(nrow=n_simu, ncol=3))
+for (i in 1:n_simu){
+  w = as.matrix(sample(1:1000, 5, replace=F))
+  w = w/sum(w)
+  mc_port[i,1] = t(w) %*% my_esp
+  mc_port[i,2] = t(w) %*% my_cov %*% w
+  mc_port[i,3] = mc_port[i,1]/sqrt(mc_port[i,2])
+} 
+colnames(mc_port)=c('mean', 'var', 'sharpe')
+
+
+p <- ggplot() + geom_jitter(data=mc_port, aes(x=var, y=mean, colour=sharpe)) +
+scale_color_gradient(low='orange3', high='gold')
+p
+
+```
+
+### Minimum Variance Portfolio 
+
+As seen in class, the optimal weights for the minimum variance portfolio are given by:
+$$ x^* = \frac{\Sigma^{-1} \mathbb{I}}{\mathbb{I}^T\Sigma^{-1} \mathbb{I}} $$ 
+Where $\mathbb{I}$ is the identity vector. We create the function to find the optimal weights and plot it along our simulation.
+
+```{r mvp}
+MVP = function(Cov){
+   one.vec= rep(1,5)
+  top = (solve(Cov)%*%one.vec)
+  bot = (t(one.vec)%*%solve(Cov)%*%one.vec)
+  x_min = top/as.numeric(bot)
+  return(x_min)
+}
+
+x_min = MVP(my_cov)
+
+min_var_port = data.frame(matrix(nrow=1, ncol=3))
+min_var_port[1] = t(x_min)%*%my_esp
+min_var_port[2] = t(x_min)%*%my_cov%*%x_min
+min_var_port[3] = min_var_port[1]/sqrt(min_var_port[2])
+colnames(min_var_port) = c('mean_min', 'var_min', 'sharpe_min')
+
+p1 <- ggplot() + geom_jitter(data=mc_port, aes(x=var, y=mean, colour=sharpe)) +
+  scale_color_gradient(low='orange3', high='gold') + 
+  geom_point(data=min_var_port, aes(x=var_min, y=mean_min),shape=8, size=3, color='darkred')
+p1
+
+```
+
+### Maximum Return Portfolio 
+
+The Maximum return portfolio is actually the portfolio that can attain the maximum return of one of its given stock. Or, more generally, the portfolio that can attain whatever level of return we ask it to give off. The Lagragian used for this problem is a bit tedious to resolve mathematically, so we will take advantage that this is a programming class and solve the problem without developping to much. We saw in class that the optimization problem can be summarized to the following: 
+
+$$ A x = B   $$
+Where: 
+
+$$ A = \pmatrix{ 2\Sigma & E & \mathbb{I} \\ E^T & 0 & 0 \\ \mathbb{I}^T & 0 & 0 } $$
+
+$$ x = \pmatrix{ w \\ \lambda_1 \\ \lambda_2 }  $$
+$$ B = \pmatrix{ \mathbf{0} \\ E_{Target} \\ 1}  $$
+Hence, the solution for this problem is attainable as long as the matrix $A$ can be inverted. We construct then matrix $A$ and vector $B$ and solve for $x$. 
+
+$$ x = A^{-1}B$$
+
+```{r maxrt}
+MaxP = function(Cov, Esp, target){
+  top_mat = cbind(2*Cov, Esp, rep(1,5))
+  mid_vec = c(t(Esp), 0, 0)
+  bot_vec = c(rep(1,5), 0, 0)
+  A_mat = rbind(top_mat, mid_vec, bot_vec)
+  x_vec = c(rep(0,5), target , 1)
+  weight_opti = solve(A_mat)%*%x_vec
+  weight_opti = weight_opti[1:5]
+  return(weight_opti)
+}
+
+weight_opti = MaxP(my_cov, my_esp, max(my_esp))
+
+max_rt_port = data.frame(matrix(nrow=1, ncol=3))
+max_rt_port[,1] = weight_opti%*%my_esp
+max_rt_port[,2] = weight_opti%*%my_cov%*%t(t(weight_opti))
+max_rt_port[,3] = max_rt_port[,1]/sqrt(max_rt_port[,2])
+colnames(max_rt_port) = c('mean_max', 'var_max', 'sharpe_max')
+
+
+p2 <- ggplot() + geom_jitter(data=mc_port, aes(x = var, y = mean, colour=sharpe)) + 
+   scale_colour_gradient(low = "orange3", high = "gold") + 
+   geom_point(data=min_var_port, aes(x=var_min, y=mean_min), shape=8, size=3, color='darkred') + 
+   geom_point(data=max_rt_port, aes(x=var_max, y=mean_max), shape=8, size=3, color='black')
+p2
+
+```
+
+### Maximum Sharpe Portfolio
+
+We could, as for the previous cases, go for optimization of a constrained problem and solve for the optimal weights, but we will present another approach which can be sued in order to approximate the actual solution. Approximation will always be a great solution when the actual optimization problem is too difficult to solve analitically. Here, we approximate the MSP by finding out which of the simulated portfolio has the maximum sharpe ratio. Hence, the more we simulate portfolios with random weights the more we have a precise estimation of the actual MSP. (There is of course certains method that allow for a more precise estimation to be found faster.)
+
+```{r maxtan}
+max_sh_port = data.frame(matrix(nrow=1, ncol=3))
+pre_max = sort(mc_port[,'sharpe'], decreasing=T, index.return=T)
+max_sh_port[1] = mc_port[pre_max$ix[1], 'mean']
+max_sh_port[2] = mc_port[pre_max$ix[1],'var']
+max_sh_port[3] = pre_max$x[1]
+colnames(max_sh_port) = c('mean_max', 'var_max', 'sharpe_max')
+
+
+p3 <- ggplot() + geom_jitter(data=mc_port, aes(x = var, y = mean, colour=sharpe)) +  
+  scale_colour_gradient(low = "orange3", high = "gold") + 
+  geom_point(data=min_var_port, aes(x=var_min, y=mean_min), shape=8, size=3, color='darkred') +
+  geom_point(data=max_rt_port, aes(x=var_max, y=mean_max), shape=8, size=3, color='black') +
+  geom_point(data=max_sh_port, aes(x=var_max, y=mean_max), shape=8, size=3, color='darkgreen')
+p3
+
+
+
+
+```
+
+### The efficient frontier
+
+We finsih this class by presenting the construction of the efficient frontier. We build it by creating of the Minimum Variance Portfolio for every possible expected return between the one of the MVP and the MRP. 
+
+```{r eff_frontier}
+mus = seq(min_var_port[,'mean_min'],max_rt_port[,'mean_max'],0.00001)
+eff_frontier2 = data.frame(matrix(nrow=length(mus), ncol=2))
+r = 1
+
+for(i in mus){
+  weight_opti = MaxP(my_cov, my_esp, i)
+  eff_frontier2[r,1] = weight_opti%*%my_esp
+  eff_frontier2[r,2] = weight_opti%*%my_cov%*%t(t(weight_opti))
+  r = r+1
+} 
+
+colnames(eff_frontier2) = c('means', 'vars')
+
+p5 <- ggplot() + geom_jitter(data=mc_port, aes(x = var, y = mean, colour=sharpe)) + 
+  scale_colour_gradient(low = "orange3", high = "gold") + 
+  geom_point(data=min_var_port, aes(x=var_min, y=mean_min), shape=8, size=3, color='darkred') + 
+  geom_point(data=max_rt_port, aes(x=var_max, y=mean_max), shape=8, size=3, color='black') + 
+  geom_point(data=max_sh_port, aes(x=var_max, y=mean_max), shape=8, size=3, color='darkblue') + 
+  geom_line(data=eff_frontier2, aes(x=vars, y=means), color='black')
+
+p5
+
+
+
+
+
+```
+
+

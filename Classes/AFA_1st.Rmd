@@ -1,0 +1,201 @@
+---
+title: "AFA - 1st Session"
+author: "Mathis Mourey"
+date: "6 février 2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# R for AFA - 1st session - Introduction to R 
+
+## Introduction to R programming
+
+We assign values to varaibles by using either the equal sign or the an left arrow sign. The function print() and cat() allow for putting sentences into your code. They are particularly useful for announcing errors in a function/loop.
+
+```{r variables}
+x_1 = 2
+x_2 <- 2 
+y_1 = x_1 + x_2**2 
+
+cat('x_1 is equal to', x_1, 'while x_2 is', x_2, '. Wait. It is the same!')
+```
+
+In order to perform more complex operations we use predefined functions. Such as the following:
+
+```{r predef_functions}
+sqrt(y_1)
+log(x_1)
+exp(y_1)
+```
+
+A useful fonctionality is the \#, that allows you to comment your code in order to make it usable and readable by others. Also, when the predefined functions in the basic R aren't enough, we can call packages, using the library() function. Packages are a set of user-defined functions that are the main reasons why R is such a great open-source langage. In the example below, we use the package *Quantmod* in order to access yahoo finance database and download prices and volume directly into RStudio. 
+
+```{r quantmod}
+options(warn=-1)
+library(quantmod)
+
+# downloading all the available market data on Facebook
+df = getSymbols('FB', env=NULL)
+
+# shows the first lines of a table
+head(df)
+```
+
+Most of the time we use matrix calculus in order to perform quickly complex operations. Especially, matrix calculus will be usefull for determining efficient portfolio in the Markowitz framework later on. We can create a vector in the following way 
+
+``` {r vector}
+matrix(nrow=1, ncol=4)
+c(1,2,33,21)
+rep(1,10)
+seq(0,10,1)
+```
+
+The code above shows different approaches: 
+You can create vector either by creating a matrix of 1 row or 1 column using the matrix() function; or by using the function c() that binds values together; the function rep() that create a vector of a repetition of a value; the function seq() that create a vector of an interval between two values, with a given step.
+
+### Useful functions 
+
+
+``` {r useful_func}
+# first 2 numbers
+head(rep(1, 10), 2)
+
+#last 4 numbers
+tail(seq(0,10, 1), 4)
+
+#length of the vector
+length(c(1,2,33,21))
+
+#Dimension of a matrix: only with matrices
+dim(matrix(nrow=1, ncol=4)) 
+
+# cbind associate two or more vectors in columns 
+mat_1 = cbind(c(1,2,1,2), c(3,4,2,1))
+mat_1
+
+#rbind associate two or more vectors in rows 
+mat_2 = rbind(c(1,2,1,2), c(3,4,2,1))
+mat_2
+
+# square matrix 
+mat_3 = rbind(c(1,2), c(2,3))
+mat_3
+```
+
+When performing operations between matrices be sure of keeping in mind the size and dimensions of your data. 
+
+```{r matrix_op}
+#Multplication
+mat_2 %*% mat_1
+
+#Inverse of a matrix
+solve(mat_3)
+
+#Tranpose of a matrix
+t(mat_1)
+
+#Addition of matrices 
+mat_2 + t(mat_1)
+```
+
+
+One other type of variable that will be important is the *list*. Lists could be thought of, s a vector but it can consist of strings, numbers, matrices, ... it is especially useful when you are looking at the evolution of a covariance matrix for instance. 
+
+
+```{r lists}
+#Create a list without anything inside a add afterwards
+l = list()
+l[[1]] = 12
+l[[2]] = c(1,2,1)
+l[[3]] = 'hello'
+l
+
+l_1 = list(12, c(1,2,1), 'hello')
+l_1
+
+```
+
+Finally, loops will be the most important feature to know. Sometimes, you will need to adjust particular measurement or to create your own functions. Knowing how to use loops will be a great advantage in term of efficiency and clarity of the code. 
+
+```{r loops}
+#for 
+for(i in 1:10){
+    print(i)
+}
+
+#if 
+if(x_1 == 1){
+    print('Noice')
+} else if(x_1 != 2){
+    print('Smort')
+} else {
+    print('too bad')
+}
+
+# Combine list and loop to create tensors 
+my_tensor = list()
+for(i in 1:3){
+    my_tensor[[i]] = matrix(1, nrow=2, ncol=2)
+}
+
+my_tensor
+
+# or function lapply works fine as well 
+my_tensor_2 = lapply(1:3, function(x) matrix(1, nrow=2, ncol=2))
+my_tensor_2
+
+```
+
+
+## Handling your data in R 
+
+We will start off with importing our dataset (in excel format). The base package of r already has an function for reading excel files. The function **summary** can aslo help you have a clearer idea of what the data looks like.
+
+```{r openxlsx}
+library(openxlsx)
+df = read.xlsx('dataset_AFA.xlsx', sheet = 'Market_Data')
+summary(df)
+
+```
+
+
+There is two types of data in the same dataframe. First, there is **.R** (price data) and **.V** (volume data). We start off by making two distinct dataframes for each types. Also, R has the bad habit to change date object into numeric variables. Here, the date column in actually the number of days since 1st January 1900. We use the function **as.Date** to create back the dates. 
+
+
+```{r dfs}
+
+price = volume = data.frame(matrix(nrow=nrow(df), ncol = (ncol(df)-1)/2 + 1))
+
+#initialy put dates as the first columns for both df
+
+price[,1] = volume[,1] = as.Date(df$Dates, origin='1899-12-30')
+
+r=2
+for(i in seq(2, ncol(df), 2)){
+  price[,r] = df[,i]
+  volume[,r] = df[,(i+1)]
+  r = r +1
+}
+  
+colnames(price) = colnames(volume) = c('Dates', 'AAPL', 'TSLA', 'GM', 'FB', 'DJI')
+head(price)
+head(volume)
+plot(price$Dates, price$AAPL, type='l')
+
+
+```
+
+Once you've done everything you needed with your data, you can write excel files with a dataframe in each worksheet. 
+
+```{r write-csv}
+
+library(xlsx)
+write.xlsx(price, file="my_own_dataset.xlsx", sheetName="price", row.names=FALSE)
+write.xlsx(volume, file="my_own_dataset.xlsx", sheetName="volume", append=TRUE, row.names=FALSE) #append=T if the file is already existing
+
+```
+
+
